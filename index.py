@@ -1,6 +1,7 @@
 import simpy
 import random
 
+
 # Define the arrival rate (intensity) lambda
 lambda_ = 60  # Adjust this to your desired rate
 sim_duration = 2 # Adjust this to your desired simulation duration
@@ -33,12 +34,4 @@ env.run(until=sim_duration)
 
 # Print the total number of generated requests
 print(f"Total number of generated requests: {num_requests}")
-
-
-
-
-
-
-
-
 

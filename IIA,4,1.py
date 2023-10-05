@@ -1,10 +1,10 @@
 import simpy
 import random
 
-sim_duration = 2  # Simulation duration (adjust as needed)
+sim_duration = 10  # Simulation duration (adjust as needed)
 lambda_ = 60  # Arrival rate (requests per unit of time)
-mu = 1  # Service rate (requests processed per unit of time)
-Qmin = 0.5  # Minimum value for Q
+mu = 5  # Service rate (requests processed per unit of time)
+Qmin = 0.2  # Minimum value for Q
 total_rejected = 0  # Initialize a counter for rejected requests
 
 env = simpy.Environment()
