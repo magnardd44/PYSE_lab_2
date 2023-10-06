@@ -1,6 +1,7 @@
 import simpy
 import random
 
+
 # Model 1: Elastic Data Center
 class ElasticDataCenter:
     def __init__(self, env, lambda_, mu, Qmin, energy_cost_model):
@@ -32,7 +33,9 @@ class ElasticDataCenter:
             else:
                 k -= 1
                 self.total_rejected += 1
-                print(f"Request rejected at time {self.env.now}. Total rejected: {self.total_rejected}")
+                print(
+                    f"Request rejected at time {self.env.now}. Total rejected: {self.total_rejected}"
+                )
 
     def user3(self, k, Q):
         with self.server_pool.request() as req:
@@ -42,15 +45,22 @@ class ElasticDataCenter:
             print(f"User3 with k={k} and Q={Q} handling request at time {self.env.now}")
 
             # Simulate the processing time
-            yield self.env.timeout(1 / self.mu)  # Representing streaming duration as per 1/mu
+            yield self.env.timeout(
+                1 / self.mu
+            )  # Representing streaming duration as per 1/mu
 
-            print(f"User3 with k={k} and Q={Q} finished processing at time {self.env.now}")
+            print(
+                f"User3 with k={k} and Q={Q} finished processing at time {self.env.now}"
+            )
+
 
 # Model 2: Data Center Server Tuning
 class DataCenter:
     def __init__(self, env):
         self.env = env
-        self.servers = simpy.Container(env, init=0, capacity=10)  # Initialize servers with a maximum capacity of 10
+        self.servers = simpy.Container(
+            env, init=0, capacity=10
+        )  # Initialize servers with a maximum capacity of 10
 
     def increase_servers(self):
         self.servers.put(1)  # Add one server
@@ -76,7 +86,9 @@ class DataCenter:
             if self.condition_increase():
                 self.increase_servers()
             else:
-                yield self.env.timeout(1)  # Wait until the condition is met for increasing
+                yield self.env.timeout(
+                    1
+                )  # Wait until the condition is met for increasing
 
     def down_model(self):
         while True:
@@ -85,7 +97,10 @@ class DataCenter:
             if self.condition_decrease():
                 self.decrease_servers()
             else:
-                yield self.env.timeout(1)  # Wait until the condition is met for decreasing
+                yield self.env.timeout(
+                    1
+                )  # Wait until the condition is met for decreasing
+
 
 # Model 3: Energy Cost Model
 class EnergyCostModel:
@@ -102,19 +117,24 @@ class EnergyCostModel:
     def price_change(self):
         while True:
             if self.elprice == "low":
-                yield from self.wait_until(lambda: random.expovariate(1/self.expected_times["low"]) < 1)
+                yield from self.wait_until(
+                    lambda: random.expovariate(1 / self.expected_times["low"]) < 1
+                )
                 self.elprice = "medium"
 
             elif self.elprice == "medium":
-                yield from self.wait_until(lambda: random.expovariate(1/self.expected_times["medium"]) < 1)
+                yield from self.wait_until(
+                    lambda: random.expovariate(1 / self.expected_times["medium"]) < 1
+                )
                 switch_to_high = random.random() < self.pmh
                 if switch_to_high:
                     self.elprice = "high"
-                    yield from self.wait_until(lambda: random.expovariate(1/self.expected_times["high"]) < 1)
+                    yield from self.wait_until(
+                        lambda: random.expovariate(1 / self.expected_times["high"]) < 1
+                    )
                     self.elprice = "medium"
                 else:
                     self.elprice = "low"
-
 
 
 def main():
@@ -127,7 +147,7 @@ def main():
     expected_times = {
         "low": 4,
         "medium": 3,
-        "high": 2
+        "high": 2,
     }  # Expected times for each price level
 
     env = simpy.Environment()
@@ -145,6 +165,7 @@ def main():
 
     # Run the simulation
     env.run(until=sim_duration)
+
 
 if __name__ == "__main__":
     main()
