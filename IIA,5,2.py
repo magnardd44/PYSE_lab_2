@@ -55,19 +55,20 @@ class DataCenter:
 
     def increase_servers(self):
         yield self.servers.put(1)  # Add one server
+        self.log_server_change("increased")
 
     def decrease_servers(self):
         if self.servers.level > 0:
             yield self.servers.get(1)  # Remove one server
+            self.log_server_change("decreased")
+
+    def log_server_change(self, action):
+        print(f"[Time {self.env.now}] Server {action}: Current servers = {self.servers.level}, Energy Price = {self.energy_cost_model.elprice}")
 
     def condition_increase(self):
-        # Logg status for bedre innsikt
-        print(f"[Time {self.env.now}] Server increased: Current servers = {self.servers.level}, Energy Price = {self.energy_cost_model.elprice}")
         return self.servers.level < 10 and (self.energy_cost_model.elprice == "low" or self.energy_cost_model.elprice == "medium")
 
     def condition_decrease(self):
-        # Logg status for bedre innsikt
-        print(f"[Time {self.env.now}] Server decreased: Current servers = {self.servers.level}, Energy Price = {self.energy_cost_model.elprice}")
         return self.servers.level > 2 and (self.energy_cost_model.elprice == "high")
 
     def up_model(self):
