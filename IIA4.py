@@ -1,15 +1,16 @@
 import simpy
 import random
 
-sim_duration = 2  # Simulation duration (adjust as needed)
+sim_duration = 10  # Simulation duration (adjust as needed)
 lambda_ = 60  # Arrival rate (requests per unit of time)
-mu = 1  # Service rate (requests processed per unit of time)
-Qmin = 0.5  # Minimum value for Q
+mu = 5  # Service rate (requests processed per unit of time)
+Qmin = 0.2  # Minimum value for Q
 total_rejected = 0  # Initialize a counter for rejected requests
 
 env = simpy.Environment()
 n = 5  # Number of servers
 server_pool = simpy.Resource(env, capacity=n)  # Initialize server pool
+
 
 def generate_requests(env, lambda_, user3):
     global total_rejected
@@ -31,7 +32,10 @@ def generate_requests(env, lambda_, user3):
         else:
             k -= 1
             total_rejected += 1
-            print(f"Request rejected at time {env.now}. Total rejected: {total_rejected}")
+            print(
+                f"Request rejected at time {env.now}. Total rejected: {total_rejected}"
+            )
+
 
 def user3(env, k, Q):
     with server_pool.request() as req:
@@ -45,9 +49,12 @@ def user3(env, k, Q):
 
         print(f"User3 with k={k} and Q={Q} finished processing at time {env.now}")
 
+
 # Start the request generation process
 env.process(generate_requests(env, lambda_, user3))
 env.run(until=sim_duration)
 
-print(f"Total number of generated requests: {server_pool.capacity * (sim_duration / mu)}")
+print(
+    f"Total number of generated requests: {server_pool.capacity * (sim_duration / mu)}"
+)
 print(f"Total number of rejected requests: {total_rejected}")
