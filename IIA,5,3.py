@@ -30,10 +30,16 @@ class ElasticDataCenter:
             # Check if Q is greater than Qmin
             if Q > self.Qmin:
                 k += 1
+                # Adding signaling mechanism here
+                self.signal_up.succeed()  # Send signal_up
+                self.signal_up = simpy.Event(self.env)  # Reset event
                 self.env.process(self.user3(k, Q))
             else:
                 k -= 1
                 self.total_rejected += 1
+                # Adding signaling mechanism here
+                self.signal_down.succeed()  # Send signal_down
+                self.signal_down = simpy.Event(self.env)  # Reset event
                 print(f"Request rejected at time {self.env.now}. Total rejected: {self.total_rejected}")
 
     def user3(self, k, Q):
@@ -42,18 +48,19 @@ class ElasticDataCenter:
 
             # Implement user3 logic here...
             print(f"User3 with k={k} and Q={Q} handling request at time {self.env.now}")
+            print(f"User3 with k={k} and Q={Q} finished processing at time {self.env.now}")
 
             # Simulate the processing time
             yield self.env.timeout(1 / self.mu)  # Representing streaming duration as per 1/mu
 
-            print(f"User3 with k={k} and Q={Q} finished processing at time {self.env.now}")
 
 # Model 2: Data Center Server Tuning
 class DataCenter:
-    def __init__(self, env, energy_cost_model):
+    def __init__(self, env, energy_cost_model, elastic_data_center):
         self.env = env
         self.servers = simpy.Container(env, init=3, capacity=10)  # Initialize servers with a maximum capacity of 10
         self.energy_cost_model = energy_cost_model  # Inkluderer energy_cost_model
+        self.elastic_data_center = elastic_data_center
 
     def increase_servers(self):
         yield self.servers.put(1)  # Add one server
@@ -75,7 +82,7 @@ class DataCenter:
 
     def up_model(self):
         while True:
-            yield self.env.timeout(1)  # Wait for some time
+            yield self.elastic_data_center.signal_up
             if self.condition_increase():
                 #yield self.energy_cost_model.price_low_event  # wait for low price signal
                 yield self.env.process(self.increase_servers())
@@ -84,7 +91,7 @@ class DataCenter:
 
     def down_model(self):
         while True:
-            yield self.env.timeout(1)  # Wait for some time
+            yield self.elastic_data_center.signal_down
             if self.condition_decrease():
                 #yield self.energy_cost_model.price_high_event  # wait for high price signal
                 yield self.env.process(self.decrease_servers())
@@ -146,7 +153,8 @@ def main():
     # Create instances of the three models
     energy_cost_model = EnergyCostModel(env, pmh, expected_times)
     elastic_dc = ElasticDataCenter(env, lambda_, mu, Qmin, energy_cost_model)
-    data_center = DataCenter(env, energy_cost_model)
+    elastic_dc = ElasticDataCenter(env, lambda_, mu, Qmin, energy_cost_model)
+    data_center = DataCenter(env, energy_cost_model, elastic_dc)
 
     # Define the simulation processes
     env.process(elastic_dc.generate_requests())

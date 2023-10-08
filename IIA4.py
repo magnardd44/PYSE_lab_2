@@ -30,7 +30,7 @@ def generate_requests(env, lambda_, user3):
             k += 1
             env.process(user3(env, k, Q))
         else:
-            k -= 1
+            k = max(0, k - 1)
             total_rejected += 1
             print(
                 f"Request rejected at time {env.now}. Total rejected: {total_rejected}"
