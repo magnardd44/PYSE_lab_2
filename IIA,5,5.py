@@ -13,7 +13,7 @@ class ElasticDataCenter:
         self.n = n  # Number of servers
         self.k = 0  # The user id (does not care if a user finishes his task or not)
         self.active_users = 0  # The current number of active users
-        self.server_pool = simpy.Resource(env, capacity=self.n * ElasticDataCenter.RESOURCES_PER_SERVER)
+        self.m = self.n* ElasticDataCenter.RESOURCES_PER_SERVER  # The current number of available resources
         self.lambda_ = lambda_
         self.mu = mu
         self.Qmin = Qmin
@@ -21,7 +21,12 @@ class ElasticDataCenter:
         self.energy_cost_model = energy_cost_model
         self.signal_up = simpy.Event(env)
         self.signal_down = simpy.Event(env)
-        self.m = self.n* ElasticDataCenter.RESOURCES_PER_SERVER  # The current number of available resources
+        LOW_ELECTRICITY_PRICE = 0.1
+        MEDIUM_ELECTRICITY_PRICE = 1
+        HIGH_ELECTRICITY_PRICE = 5
+        TIME_IN_LOW = 1
+        TIME_IN_MEDIUM = 1
+        TIME_IN_HIGH = 2
 
     def generate_requests(self):
         k = 0  # Initialize k
@@ -43,7 +48,7 @@ class ElasticDataCenter:
             potential_users_per_server = (self.k + 1) / self.n if self.n > 0 else float('inf')
 
             # Check if Q is greater than Qmin
-            if Q > self.Qmin and potential_users_per_server <= 5:
+            if Q > self.Qmin and potential_users_per_server <= 4.5:
                     if self.m > 0:
                         k += 1
                         self.k = k 
@@ -63,7 +68,7 @@ class ElasticDataCenter:
 
     def monitor_users(self):
         while True:
-            print(f"[Time {self.env.now}] Active users (k): {self.active_users}")
+            print(f"[Time {self.env.now}] Active users (k): {self.k}")
             yield self.env.timeout(1)
             
 
@@ -95,19 +100,6 @@ class ElasticDataCenter:
         self.signal_up.succeed()  
         self.signal_up = simpy.Event(self.env)
 
-#    def user3(self, k, Q):
-#        with self.server_pool.request() as req:
-#            yield req  # Wait for server availability
-#
-#            # Simulate the processing time
-#            yield self.env.timeout(1 / self.mu)  # Representing streaming duration as per 1/mu
-#            print(f"User3 with k={k} and Q={Q} handling request at time {self.env.now}")
-#            # Release the resource
-#            self.m += 1  # Increase the number of available resources
-#            self.active_users -= 1  # Decrease the number of active users
-#
-#            print(f"User3 with k={k} and Q={Q} finished processing at time {self.env.now}")
-#            print(f"active users={self.active_users} Server Pool Count: {self.m}, Q: {Q}")
 
 # Model 2: Data Center Server Tuning
 class DataCenter:
@@ -137,7 +129,7 @@ class DataCenter:
        print(f"[Time {self.env.now:.2f}] Server {action}: Current servers = {self.elastic_data_center.m}, Energy Price = {self.energy_cost_model.elprice}")
 
     def condition_increase(self):
-        users_per_server = self.elastic_data_center.k / self.elastic_data_center.n
+        users_per_server = self.elastic_data_center.k // self.elastic_data_center.n
         threshold_up = 3
         condition_result = (
             self.elastic_data_center.n <= 10
@@ -150,7 +142,7 @@ class DataCenter:
 
 
     def condition_decrease(self):
-        users_per_server = self.elastic_data_center.k / self.elastic_data_center.n
+        users_per_server = self.elastic_data_center.k // self.elastic_data_center.n
         condition_result = (
             self.elastic_data_center.n > 2 
             and (self.energy_cost_model.elprice == "high")
@@ -172,7 +164,7 @@ class DataCenter:
 
 # Model 3: Energy Cost Model
 class EnergyCostModel:
-    def __init__(self, env, durations, prices):
+    def __init__(self, env, durations, prices, elastic_dc_instance):
         self.env = env
         self.elprice = "low"
         self.current_price = prices['low']  # NOK/kWh
@@ -180,6 +172,8 @@ class EnergyCostModel:
         self.prices = prices  # Prices for each level
         self.price_high_event = simpy.Event(env)
         self.price_low_event = simpy.Event(env)
+        self.elastic_dc_instance = elastic_dc_instance
+        self.total_cost = 0.0 # Initializing the total cost
 
     def wait_until(self, condition):
         while not condition():
@@ -192,9 +186,20 @@ class EnergyCostModel:
                 self.elprice = level
                 self.current_price = self.prices[level]  # updating current price
                 print(f"[Time {self.env.now}] Energy price changed to {self.elprice} ({self.current_price} NOK/kWh)")
-                yield self.env.timeout(duration)  # Holding the price for the defined duration
+                
+                for _ in range(duration):  # Loop for each hour in duration
+                    # Compute cost
+                    users = self.elastic_dc_instance.k  # Example: Replace with the actual number of users at this time step
+                    cost_at_t = (self.current_price  *
+                                 ElasticDataCenter.USER_ENERGY_USAGE *
+                                 (1/duration))  # Assuming time=1 for each loop iteration
+                    self.total_cost += cost_at_t  # Accumulating the cost
+                    yield self.env.timeout(1)  # wait for the next time step
 
             print(f"[Time {self.env.now}] Energy price changed to {self.elprice}")
+
+    def print_total_cost(self):
+        print(f"Total cost: {self.total_cost}")
 
 
 def main():
@@ -217,8 +222,10 @@ def main():
 
     env = simpy.Environment()
 
+    # First, create an instance of ElasticDataCenter, as it doesn't depend on the other two instances.
+    elastic_dc = ElasticDataCenter(env, n, lambda_, mu, Qmin, None)  # Temporarily setting the energy_cost_model to None
     # Create instances of the three models
-    energy_cost_model = EnergyCostModel(env, durations, prices)
+    energy_cost_model = EnergyCostModel(env, durations, prices, elastic_dc)
     elastic_dc = ElasticDataCenter(env, n, lambda_, mu, Qmin, energy_cost_model)
     data_center = DataCenter(env, energy_cost_model, elastic_dc)
 
@@ -233,6 +240,9 @@ def main():
 
     # Print final results
     elastic_dc.print_final_rejects()
+
+    # Print total cost
+    energy_cost_model.print_total_cost()
 
 
 if __name__ == "__main__":
