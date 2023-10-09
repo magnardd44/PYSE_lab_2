@@ -89,6 +89,10 @@ class ElasticDataCenter:
         # Simulate the processing time
         yield self.env.timeout(1 / self.mu)  # Representing streaming duration as per 1/mu
 
+        # Get the energy cost for processing this user's request
+        user_energy_usage = ElasticDataCenter.USER_ENERGY_USAGE
+        self.energy_cost_model.calculate_cost(self.k, user_energy_usage)
+
         print(f"User3 with k={self.k} and Q={Q} finished processing at time {self.env.now}")
         print(f"active users={self.k} Server Pool Count: {self.m}, Q: {Q}")
 
@@ -107,6 +111,8 @@ class ElasticDataCenter:
         # Store the MOS score and Q value
         self.mos_scores.append(mos_score)
         self.q_values.append(Q)
+
+
 
     @staticmethod
     def calculate_MOS(Q):
@@ -203,11 +209,17 @@ class EnergyCostModel:
         self.prices = prices  # Prices for each level
         self.price_high_event = simpy.Event(env)
         self.price_low_event = simpy.Event(env)
+        self.total_cost = 0  # Initialize total cost
+
+    def calculate_cost(self, k, user_energy_usage):
+        cost = self.current_price * k * user_energy_usage
+        self.total_cost += cost
 
 
     def wait_until(self, condition):
         while not condition():
             yield self.env.timeout(1)
+
 
     def price_change(self):
         while True:
@@ -241,8 +253,6 @@ def main():
 
     env = simpy.Environment()
 
-    # First, create an instance of ElasticDataCenter, as it doesn't depend on the other two instances.
-    elastic_dc = ElasticDataCenter(env, n, lambda_, mu, Qmin, None)  # Temporarily setting the energy_cost_model to None
     # Create instances of the three models
     energy_cost_model = EnergyCostModel(env, durations, prices)
     elastic_dc = ElasticDataCenter(env, n, lambda_, mu, Qmin, energy_cost_model)
@@ -269,5 +279,13 @@ def main():
     else:
         print("No MOS scores or Q values to average.")
 
+    # Retrieve and display the total energy cost
+    print(f"Total Energy Cost: {energy_cost_model.total_cost} NOK")
+
 if __name__ == "__main__":
     main()
+
+
+## for å regne ut total kostnad, vil løsning kanskje være
+
+# EnergyCostModel: regner ut total energi forbruk. aka total kostnad = total kostnad + (current_price * USER_ENERGY_USAGE * k)
