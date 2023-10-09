@@ -27,6 +27,8 @@ class ElasticDataCenter:
         TIME_IN_LOW = 1
         TIME_IN_MEDIUM = 1
         TIME_IN_HIGH = 2
+        self.mos_scores = [] # MOS score for each user
+        self.q_values = [] # Q values for each user
 
     def generate_requests(self):
         k = 0  # Initialize k
@@ -51,9 +53,6 @@ class ElasticDataCenter:
             if Q > self.Qmin and potential_users_per_server <= 4.5:
                     if self.m > 0:
                         k += 1
-                        self.k = k 
-                        #self.m -= 1 # Reduce the number of available resources
-                        #self.active_users += 1
                         self.signal_up.succeed()  
                         self.signal_up = simpy.Event(self.env)
                         self.env.process(self.user3(k, Q))
@@ -75,6 +74,7 @@ class ElasticDataCenter:
     def print_final_rejects(self):
         print(f"Total rejected requests at end of simulation: {self.total_rejected}")
 
+
     def user3(self, k, Q):
         # Check if resource is available
         while self.m <= 0:
@@ -84,12 +84,12 @@ class ElasticDataCenter:
         # Resource is available
         self.m -= 1  # Reduce the number of available resources
         self.k += 1
-        print(f"User3 with k={k} and Q={Q} handling request at time {self.env.now}")
+        print(f"User3 with k={self.k} and Q={Q} handling request at time {self.env.now}")
 
         # Simulate the processing time
         yield self.env.timeout(1 / self.mu)  # Representing streaming duration as per 1/mu
 
-        print(f"User3 with k={k} and Q={Q} finished processing at time {self.env.now}")
+        print(f"User3 with k={self.k} and Q={Q} finished processing at time {self.env.now}")
         print(f"active users={self.k} Server Pool Count: {self.m}, Q: {Q}")
 
         # Release the resource
@@ -99,6 +99,37 @@ class ElasticDataCenter:
         # Signal that a resource has been released (if any process is waiting for this)
         self.signal_up.succeed()  
         self.signal_up = simpy.Event(self.env)
+
+         # Calculate MOS score
+        mos_score = self.calculate_MOS(Q)
+        print(f"User3 with k={self.k} and Q={Q} has MOS score: {mos_score} at time {self.env.now}")
+
+        # Store the MOS score and Q value
+        self.mos_scores.append(mos_score)
+        self.q_values.append(Q)
+
+    @staticmethod
+    def calculate_MOS(Q):
+        """
+        Calculate the MOS score based on the Q factor using the given step function.
+
+        Parameters:
+        - Q: quality factor
+
+        Returns:
+        int: MOS score (1-5)
+        """
+        # Threshold values
+        q = [0.0, 0.5, 0.6, 0.8, 0.9, 1.0]
+
+        # Define MOS score
+        for i in range(1, 6):
+            if q[i-1] < Q <= q[i]:
+                return i
+    
+        # Default MOS score if Q does not match any condition
+        # (not needed if Q is always within the predefined thresholds)
+        return 1
 
 
 # Model 2: Data Center Server Tuning
@@ -164,7 +195,7 @@ class DataCenter:
 
 # Model 3: Energy Cost Model
 class EnergyCostModel:
-    def __init__(self, env, durations, prices, elastic_dc_instance):
+    def __init__(self, env, durations, prices):
         self.env = env
         self.elprice = "low"
         self.current_price = prices['low']  # NOK/kWh
@@ -172,8 +203,7 @@ class EnergyCostModel:
         self.prices = prices  # Prices for each level
         self.price_high_event = simpy.Event(env)
         self.price_low_event = simpy.Event(env)
-        self.elastic_dc_instance = elastic_dc_instance
-        self.total_cost = 0.0 # Initializing the total cost
+
 
     def wait_until(self, condition):
         while not condition():
@@ -186,20 +216,9 @@ class EnergyCostModel:
                 self.elprice = level
                 self.current_price = self.prices[level]  # updating current price
                 print(f"[Time {self.env.now}] Energy price changed to {self.elprice} ({self.current_price} NOK/kWh)")
-                
-                for _ in range(duration):  # Loop for each hour in duration
-                    # Compute cost
-                    users = self.elastic_dc_instance.k  # Example: Replace with the actual number of users at this time step
-                    cost_at_t = (self.current_price  *
-                                 ElasticDataCenter.USER_ENERGY_USAGE *
-                                 (1/duration))  # Assuming time=1 for each loop iteration
-                    self.total_cost += cost_at_t  # Accumulating the cost
-                    yield self.env.timeout(1)  # wait for the next time step
+                yield self.env.timeout(duration)  # Holding the price for the defined duration
 
             print(f"[Time {self.env.now}] Energy price changed to {self.elprice}")
-
-    def print_total_cost(self):
-        print(f"Total cost: {self.total_cost}")
 
 
 def main():
@@ -225,7 +244,7 @@ def main():
     # First, create an instance of ElasticDataCenter, as it doesn't depend on the other two instances.
     elastic_dc = ElasticDataCenter(env, n, lambda_, mu, Qmin, None)  # Temporarily setting the energy_cost_model to None
     # Create instances of the three models
-    energy_cost_model = EnergyCostModel(env, durations, prices, elastic_dc)
+    energy_cost_model = EnergyCostModel(env, durations, prices)
     elastic_dc = ElasticDataCenter(env, n, lambda_, mu, Qmin, energy_cost_model)
     data_center = DataCenter(env, energy_cost_model, elastic_dc)
 
@@ -241,9 +260,14 @@ def main():
     # Print final results
     elastic_dc.print_final_rejects()
 
-    # Print total cost
-    energy_cost_model.print_total_cost()
-
+    # Compute and print the average MOS score and Q value
+    if elastic_dc.mos_scores and elastic_dc.q_values:  # Check if lists are not empty
+        avg_mos_score = sum(elastic_dc.mos_scores) / len(elastic_dc.mos_scores)
+        avg_q_value = sum(elastic_dc.q_values) / len(elastic_dc.q_values)
+        print(f"Average MOS score: {avg_mos_score:.2f}")
+        print(f"Average Q value: {avg_q_value:.2f}")
+    else:
+        print("No MOS scores or Q values to average.")
 
 if __name__ == "__main__":
     main()
