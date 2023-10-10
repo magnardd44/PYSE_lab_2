@@ -25,10 +25,17 @@ class ElasticDataCenter:
         self.signal_down = simpy.Event(env)
         self.mos_scores = [] # MOS score for each user per hour
         self.q_values = [] # Q values for each user per hour
-        #self.mos_score_per_minute = [] # MOS score for each user per minute
-        #self.q_values_per_minute = [] # Q values for each user per minute
-    
-    
+        self.hourly_mos_scores = []
+
+    #def store_mos_scores_hourly(self):
+    #    while True:
+    #        yield self.env.timeout(60)  # wait for an hour
+    #        if self.mos_scores:
+    #            selected_mos = random.choice(self.mos_scores)
+    #            self.hourly_mos_scores.append(selected_mos)
+    #        else:
+    #            self.hourly_mos_scores.append(1)
+
     def store_mos_scores_hourly(self):
         while True:
             yield self.env.timeout(60)  # wait for an hour
@@ -36,25 +43,18 @@ class ElasticDataCenter:
             self.hourly_mos_scores.append(avg_mos)
             self.mos_scores = []  # reset the mos_scores for the next hour
 
-    def interarrival_time(self):
-        return random.expovariate(self.lambda_)  # Generate an inter-arrival time from an exponential distribution
 
     def generate_requests(self):
         k = 0  # Initialize k
         while True:
             # Generate an inter-arrival time from an exponential distribution
-            interarrival_time = self.interarrival_time()
+            interarrival_time = random.expovariate(self.lambda_)
 
             # Yield an event for the next request arrival
             yield self.env.timeout(interarrival_time)
 
             # Calculate Q based on the described logic - fair share
             Q = min(1, self.m / self.k) if self.k > 0 else 1
-
-             # Log the values
-             # print(
-             #     f"Time: {self.env.now:.2f}, k: {k}, Server Pool Count: {self.m}, Q: {Q}"
-             # )
             
             potential_users_per_server = (self.k + 1) / self.n if self.n > 0 else float('inf')
 
@@ -233,31 +233,55 @@ class EnergyCostModel:
 
     def price_change(self):
         while True:
-            # Define the allowed transitions in the desired order
-            allowed_transitions = ["low", "medium", "high", "low"]
-
-            for next_level in allowed_transitions:
-                if (self.elprice == next_level):
-                    continue  # Skip if the next level is the same as the current level
-
-                self.elprice = next_level
-                self.current_price = self.prices[next_level]  # updating current price
-                print(f"[Time {self.env.now}] Energy price changed to {self.elprice} ({self.current_price} NOK/kWh)")
+            # Iterating through low, medium, high stages with their respective durations and prices
+            for level, duration in self.durations.items():
+                self.elprice = level
+                low, high = self.prices[level]
+                self.current_price = random.uniform(low, high)  # Generate a random price within the range
                 self.price_table.append((self.env.now, self.current_price))  # Store the price and the current time in the table
-                yield self.env.timeout(1)  # Holding the price for the defined duration
-
-            print(f"[Time {self.env.now}] Energy price changed to {self.elprice}")
+                print(f"[Time {self.env.now}] Energy price changed to {self.elprice} ({self.current_price:.2f} NOK/kWh)")
+                yield self.env.timeout(duration)  # Holding the price for the defined duration
     
-    def get_price_at_time(self, time):
-        # Return the price at a specific time, if no data is available return None
-        for t, price in reversed(self.price_table):
-            if t <= time:
-                return price
-        return None
+            print(f"[Time {self.env.now}] Energy price changed to {self.elprice}")
+
+
+
+    def get_avg_price_per_min(self, end_time):
+        min = 0  
+        avg_price_per_min = []  
+
+        while min*60 < end_time:  # Considering the end_time in minutes
+            # Filtering prices that are within the current min (time in minutes)
+            prices_this_min = [price for time, price in self.price_table if min*60 <= time < (min + 1)*60] 
+
+            if prices_this_min:
+                avg_price = sum(prices_this_min) / len(prices_this_min)
+            else:
+                avg_price = 0  
+
+            avg_price_per_min.append((min, avg_price))
+            print(f"Average price during min {min} - {min+1}: {avg_price:.2f} NOK/kWh")
+
+            min += 1
+
+        return avg_price_per_min
+
+
+    #def price_change(self):
+    #    while True:
+    #        # Iterating through low, medium, high stages with their respective durations and prices
+    #        for level, duration in self.durations.items():
+    #            self.elprice = level
+    #            self.current_price = self.prices[level]  # updating current price
+    #            self.price_table.append((self.env.now, self.current_price))  # Store the price and the current time in the table
+    #            print(f"[Time {self.env.now}] Energy price changed to {self.elprice} ({self.current_price} NOK/kWh)")
+    #            yield self.env.timeout(duration)  # Holding the price for the defined duration
+    #
+    #        print(f"[Time {self.env.now}] Energy price changed to {self.elprice}")
 
 
 def main():
-    sim_duration = 100  # Total simulation duration (adjust as needed)
+    sim_duration = 24*60  # Total simulation duration (adjust as needed)
     lambda_ = 60 # Arrival rate (requests per unit of time)
     mu = 1  # Service rate (requests processed per unit of time)
     Qmin = 0.5  # Minimum value for Q
@@ -269,9 +293,12 @@ def main():
         "high": 2  # in hours
     }
     prices = {
-        "low": 0.1,  # in NOK/kWh
-        "medium": 1,  # in NOK/kWh
-        "high": 5  # in NOK/kWh
+        "low": (0.1, 0.99),  # in NOK/kWh
+        "medium": (1, 4.99),  # in NOK/kWh
+        "high": (5, 6)   # in NOK/kWh
+        #"low": (0.1),  # in NOK/kWh
+        #"medium": (1),  # in NOK/kWh
+        #"high": (5)   # in NOK/kWh
     }
 
     env = simpy.Environment()
@@ -286,12 +313,15 @@ def main():
     env.process(elastic_dc.generate_requests())
     env.process(data_center.adjust_servers())
     env.process(energy_cost_model.price_change())
+    env.process(elastic_dc.store_mos_scores_hourly())
+
 
     # Run the simulation
     env.run(until=sim_duration)
 
     # Print final results
     elastic_dc.print_final_rejects()
+
 
     # Compute and print the average MOS score and Q value for each hour
     if elastic_dc.mos_scores and elastic_dc.q_values:  # Check if lists are not empty
@@ -302,62 +332,51 @@ def main():
     else:
         print("No MOS scores or Q values to average.")
 
-    # Compute and print the average MOS score and Q value for each minute
-    #if elastic_dc.mos_score_per_minute and elastic_dc.q_values_per_minute:
-    #    avg_mos_score_per_minute = sum(elastic_dc.mos_score_per_minute) / len(elastic_dc.mos_score_per_minute)
-    #    avg_q_value_per_minute = sum(elastic_dc.q_values_per_minute) / len(elastic_dc.q_values_per_minute)
-    #    print(f"Average MOS score per minute: {avg_mos_score_per_minute:.2f}")
-    #    print(f"Average Q value per minute: {avg_q_value_per_minute:.2f}")
-    #else:
-    #    print("No MOS scores or Q values to average.")
 
     # Retrieve and display the total energy cost
     print(f"Total Energy Cost: {energy_cost_model.total_cost} NOK")
 
-    return energy_cost_model.price_table, elastic_dc.mos_scores, elastic_dc.q_values
+    return energy_cost_model.price_table, elastic_dc.mos_scores, elastic_dc.q_values, elastic_dc.hourly_mos_scores
 
 if __name__ == "__main__":
-    price_table, mos_scores, q_values = main()
+    price_table, mos_scores, q_values, hourly_mos_scores = main()
 
-    # Extract times and prices from the price table
     times, prices = zip(*price_table)
-    # Generating Time Points
-    time_points = range(len(mos_scores))
 
-    print(f"Length of time_points: {len(time_points)}")
-    print(f"Length of prices: {len(prices)}")
-    print(f"Length of mos_scores: {len(mos_scores)}")
-
-
-    # Plotting the results
-    fig, axs = plt.subplots(2, 1, figsize=(10, 8), sharex=True)  # 2 subplots, sharing x-axis
-    fig.suptitle('MOS Scores and Q Values Over Time') 
-
-    # Plot MOS scores
-    axs[0].plot(time_points[:24], mos_scores[:24], label='MOS Scores')
-    axs[0].set_title('MOS Scores Over Time')
-    axs[0].set_ylabel('MOS Score')
-    axs[0].set_xlim([0, 24])  # x-axis range from 0 to 24*60 (assuming your simulation runs for 24 hours)
-    axs[0].legend()
-    axs[0].grid(True)
+#time_array = np.array([i for i in range(24*60)])
+#mos_array = np.array([item for item in mos_scores])
+#cost_array = np.array([item for item in prices])
+ # Ensure arrays are of correct size
+    hourly_mos_scores = hourly_mos_scores
+    prices = prices
     
-    axs[1].plot(time_points[:24], prices[:24], marker='o', linestyle='-', color='b', label='Energy Price')
-    axs[1].set_title('Energy Price Over Time')
-    axs[1].set_xlabel('Time (hours)')
-    axs[1].set_ylabel('Price (NOK/kWh)')
-    axs[1].set_xlim([0, 24])  # x-axis range from 0 to 24*60 (assuming your simulation runs for 24 hours)
-    axs[1].legend()
-    axs[1].grid(True)
+    time_array = np.array([i for i in range(len(hourly_mos_scores))])  # based on actual data size
 
-    #plt.tight_layout(rect=[0, 0.03, 1, 0.95])  # Adjust the layout to prevent overlap
-    ## Plotting
-    #plt.figure(figsize=(10, 6))
-    #plt.plot(times, prices, marker='o', linestyle='-', color='b')
-#
-    ## Labeling
-    #plt.xlabel('Time')
-    #plt.ylabel('Price (NOK/kWh)')
-    #plt.title('Energy Price over Time')
-    #plt.grid(True)
-    # Displaying
-    plt.show()
+
+#Plot price level over time
+plt.plot(time_array, prices)
+plt.xlabel("minutes")
+plt.ylabel("Price in NOK")
+plt.show()
+
+#Plot quality level over time
+plt.plot(time_array, prices)
+plt.xlabel("minutes")
+plt.ylabel("Quality")
+plt.show()
+
+
+# Plot price and quality together over time
+fig, ax1 = plt.subplots()
+color = 'tab:red'
+ax1.set_xlabel('time (m)')
+ax1.set_ylabel('Quality', color=color)
+ax1.plot(time_array, hourly_mos_scores, color=color)
+ax1.tick_params(axis='y', labelcolor=color)
+ax2 = ax1.twinx()
+color = 'tab:blue'
+ax2.set_ylabel('price', color=color)
+ax2.plot(time_array,prices, color=color)
+ax2.tick_params(axis='y', labelcolor=color)
+fig.tight_layout()
+plt.show()
